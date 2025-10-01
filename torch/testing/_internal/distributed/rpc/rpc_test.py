@@ -3734,8 +3734,11 @@ class RpcTest(RpcAgentTestFixture, RpcTestCommon):
     @dist_init
     def test_rref_py_pickle_not_supported(self):
         local_rref = RRef(35)
-        with TemporaryFileName() as fname, self.assertRaisesRegex(
-            RuntimeError, "Can not pickle rref in python pickler"
+        with (
+            TemporaryFileName() as fname,
+            self.assertRaisesRegex(
+                RuntimeError, "Can not pickle rref in python pickler"
+            ),
         ):
             torch.save(local_rref, fname)
 
