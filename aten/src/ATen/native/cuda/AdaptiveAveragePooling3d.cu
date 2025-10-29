@@ -106,7 +106,7 @@ __global__ void adaptiveaveragepool(
                                    (istartT + it) * istrideT +
                                    (istartH + ih) * istrideH + (istartW + iw) * istrideW;
             scalar_t val = input[input_offset];
-            sum += static_cast<accscalar_t>(val);
+            sum += val;
           }
         }
       }

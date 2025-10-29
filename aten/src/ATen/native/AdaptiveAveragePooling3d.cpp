@@ -65,19 +65,19 @@ void adaptive_avg_pool3d_out_frame(
                 ot * osizeH * osizeW + oh * osizeW + ow;
 
             /* compute local average: */
-            accscalar_t sum = accscalar_t(0);
+            accscalar_t sum = 0;
             for (const auto it : c10::irange(kT)) {
               for (const auto ih : c10::irange(kH)) {
                 for (const auto iw : c10::irange(kW)) {
                   scalar_t val =
                       *(ip + it * istrideT + ih * istrideH + iw * istrideW);
-                  sum += accscalar_t(val);
+                  sum += val;
                 }
               }
             }
 
             /* set output to local average */
-            const accscalar_t divide_factor = accscalar_t(kT * kH * kW);
+            const accscalar_t divide_factor = kT * kH * kW;
             *op = scalar_t(sum / divide_factor);
           }
         }

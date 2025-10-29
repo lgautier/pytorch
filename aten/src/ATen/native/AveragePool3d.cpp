@@ -400,7 +400,7 @@ void avg_pool3d_backward_out_frame(
 
             /* scatter gradients out to footprint: */
             accscalar_t val  = static_cast<accscalar_t>(*op++);
-            accscalar_t val_scaled = val / divide_factor;
+            scalar_t val_scaled = static_cast<scalar_t>(val / divide_factor);
 
             for (auto z = tstart; z < tend; z++)
             {
@@ -408,7 +408,7 @@ void avg_pool3d_backward_out_frame(
               {
                 for (auto x = wstart; x < wend; x++)
                 {
-                  *(ip + z * iheight * iwidth + y * iwidth + x) += static_cast<scalar_t>(val_scaled);
+                  *(ip + z * iheight * iwidth + y * iwidth + x) += val_scaled;
                 }
               }
             }
