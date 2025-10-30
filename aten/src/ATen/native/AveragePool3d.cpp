@@ -357,7 +357,6 @@ void avg_pool3d_backward_out_frame(
           bool count_include_pad,
           std::optional<int64_t> divisor_override)
 {
-  using accscalar_t = at::opmath_type<scalar_t>;
   at::parallel_for(0, nslices, 0, [&](int64_t start, int64_t end) {
     for (const auto k : c10::irange(start, end)) {
       /* local pointers */
@@ -399,8 +398,7 @@ void avg_pool3d_backward_out_frame(
             }
 
             /* scatter gradients out to footprint: */
-            accscalar_t val  = static_cast<accscalar_t>(*op++);
-            scalar_t val_scaled = static_cast<scalar_t>(val / divide_factor);
+            const scalar_t val_scaled = *op++ / divide_factor;
 
             for (auto z = tstart; z < tend; z++)
             {
