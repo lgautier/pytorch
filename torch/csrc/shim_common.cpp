@@ -37,8 +37,14 @@ static StableIValue from_ivalue(
           ivalue.toScalarType(), extension_build_version);
     }
     case c10::TypeKind::DeviceObjType: {
-      return torch::stable::detail::_from(
-          ivalue.toDevice(), extension_build_version);
+      // Pack device type and index into StableIValue in platform-independent
+      // format Lower 8 bits = device type, upper 32 bits = device index
+      const auto& device = ivalue.toDevice();
+      uint64_t device_type_bits =
+          static_cast<uint64_t>(static_cast<int8_t>(device.type()));
+      uint64_t device_index_bits =
+          static_cast<uint64_t>(static_cast<uint32_t>(device.index())) << 32;
+      return device_type_bits | device_index_bits;
     }
     case c10::TypeKind::LayoutType: {
       return torch::stable::detail::_from(
@@ -109,8 +115,24 @@ static c10::IValue to_ivalue(
           stable_ivalue, extension_build_version));
     }
     case c10::TypeKind::DeviceObjType: {
-      return c10::IValue(torch::stable::detail::_to<c10::Device>(
-          stable_ivalue, extension_build_version));
+      // Unpack device type and index from StableIValue
+      // Lower 8 bits = device type, upper 32 bits = device index
+      c10::DeviceType device_type = static_cast<c10::DeviceType>(
+          static_cast<int8_t>(stable_ivalue & 0xFF));
+      int32_t device_index =
+          static_cast<int32_t>((stable_ivalue >> 32) & 0xFFFFFFFF);
+      TORCH_CHECK(
+          device_index >= std::numeric_limits<int8_t>::min() &&
+              device_index <= std::numeric_limits<int8_t>::max(),
+          "Device index ",
+          device_index,
+          " is out of range for int8_t [",
+          static_cast<int>(std::numeric_limits<int8_t>::min()),
+          ", ",
+          static_cast<int>(std::numeric_limits<int8_t>::max()),
+          "]");
+      return c10::IValue(
+          c10::Device(device_type, static_cast<int8_t>(device_index)));
     }
     case c10::TypeKind::LayoutType: {
       return c10::IValue(torch::stable::detail::_to<c10::Layout>(

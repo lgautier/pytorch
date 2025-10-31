@@ -2,7 +2,9 @@
 
 #include <c10/util/Exception.h>
 #include <torch/csrc/inductor/aoti_torch/c/shim.h>
+#include <torch/csrc/stable/device.h>
 #include <torch/csrc/stable/tensor_struct.h>
+#include <torch/headeronly/core/DeviceType.h>
 #include <torch/headeronly/core/ScalarType.h>
 #include <torch/headeronly/macros/Macros.h>
 #include <torch/headeronly/util/Exception.h>
@@ -128,6 +130,39 @@ struct FromImpl<ScalarType> {
   }
 };
 
+// Specialization for torch::headeronly::DeviceType => StableIValue
+// Note that we call into the shim to translate between the user's
+// DeviceType and libtorch's DeviceType, which can be different!
+using torch::headeronly::DeviceType;
+template <>
+struct FromImpl<DeviceType> {
+  static StableIValue call(
+      DeviceType val,
+      uint64_t extension_build_version,
+      bool is_internal) {
+    (void)extension_build_version; // Unused parameter
+    (void)is_internal; // Unused parameter
+    switch (val) {
+      case DeviceType::CPU:
+        return from(aoti_torch_device_type_cpu());
+      case DeviceType::CUDA:
+        return from(aoti_torch_device_type_cuda());
+      case DeviceType::Meta:
+        return from(aoti_torch_device_type_meta());
+      case DeviceType::XPU:
+        return from(aoti_torch_device_type_xpu());
+      case DeviceType::MPS:
+        return from(aoti_torch_device_type_mps());
+      case DeviceType::PrivateUse1:
+        return from(aoti_torch_device_type_privateuse1());
+      default:
+        TORCH_CHECK(
+            false,
+            "Not yet supported DeviceType, please file an issue describing your use case.");
+    }
+  }
+};
+
 // Specialization for std::nullopt_t => StableIValue
 template <>
 struct FromImpl<std::nullopt_t> {
@@ -197,6 +232,30 @@ struct FromImpl<torch::stable::Tensor> {
     AtenTensorHandle new_ath;
     TORCH_ERROR_CODE_CHECK(aoti_torch_new_tensor_handle(val.get(), &new_ath));
     return from(new_ath);
+  }
+};
+
+// Specialization for torch::stable::Device => StableIValue
+// Pack the device type and index into a StableIValue in a platform-independent
+// format. We use the shim representation for DeviceType (int32_t) for ABI
+// stability. StableIValue layout: DeviceType (shim int32_t) in lower 32 bits,
+// DeviceIndex in upper 32 bits
+template <>
+struct FromImpl<torch::stable::Device> {
+  static StableIValue call(
+      const torch::stable::Device& val,
+      uint64_t extension_build_version,
+      bool is_internal) {
+    (void)extension_build_version; // Unused parameter
+    (void)is_internal; // Unused parameter
+    // Convert DeviceType to shim representation (int32_t)
+    StableIValue device_type_shim = from(val.type());
+    // Pack: lower 32 bits = device type (shim), upper 32 bits = device index
+    uint64_t device_type_bits =
+        static_cast<uint64_t>(static_cast<uint32_t>(device_type_shim));
+    uint64_t device_index_bits =
+        static_cast<uint64_t>(static_cast<uint32_t>(val.index())) << 32;
+    return device_type_bits | device_index_bits;
   }
 };
 
@@ -304,6 +363,38 @@ struct ToImpl<ScalarType> {
   }
 };
 
+// Specialization for StableIValue => torch::headeronly::DeviceType
+template <>
+struct ToImpl<DeviceType> {
+  static DeviceType call(
+      StableIValue val,
+      uint64_t extension_build_version,
+      bool is_internal) {
+    (void)extension_build_version; // Unused parameter
+    (void)is_internal; // Unused parameter
+    int32_t shim_devicetype = to<int32_t>(val);
+    if (shim_devicetype == aoti_torch_device_type_cpu()) {
+      return DeviceType::CPU;
+    } else if (shim_devicetype == aoti_torch_device_type_cuda()) {
+      return DeviceType::CUDA;
+    } else if (shim_devicetype == aoti_torch_device_type_meta()) {
+      return DeviceType::Meta;
+    } else if (shim_devicetype == aoti_torch_device_type_xpu()) {
+      return DeviceType::XPU;
+    } else if (shim_devicetype == aoti_torch_device_type_mps()) {
+      return DeviceType::MPS;
+    } else if (shim_devicetype == aoti_torch_device_type_privateuse1()) {
+      return DeviceType::PrivateUse1;
+    } else {
+      TORCH_CHECK(
+          false,
+          "Not yet supported DeviceType ",
+          std::to_string(shim_devicetype),
+          ", please file an issue describing your use case.");
+    }
+  }
+};
+
 // Specialization for StableIValue => std::nullopt_t
 template <>
 struct ToImpl<std::nullopt_t> {
@@ -355,6 +446,26 @@ struct ToImpl<torch::stable::Tensor> {
     (void)extension_build_version; // Unused parameter
     (void)is_internal; // Unused parameter
     return torch::stable::Tensor(to<AtenTensorHandle>(val));
+  }
+};
+
+// Specialization for StableIValue => torch::stable::Device
+// Unpack device type and index from StableIValue in platform-independent
+// format. StableIValue layout: DeviceType (shim int32_t) in lower 32 bits,
+// DeviceIndex in upper 32 bits
+template <>
+struct ToImpl<torch::stable::Device> {
+  static torch::stable::Device call(
+      StableIValue val,
+      uint64_t extension_build_version,
+      bool is_internal) {
+    (void)extension_build_version; // Unused parameter
+    (void)is_internal; // Unused parameter
+    // Unpack: lower 32 bits = device type (shim), upper 32 bits = device index
+    StableIValue device_type_shim = val & 0xFFFFFFFF;
+    DeviceType device_type = to<DeviceType>(device_type_shim);
+    int32_t device_index = static_cast<int32_t>((val >> 32) & 0xFFFFFFFF);
+    return torch::stable::Device(device_type, device_index);
   }
 };
 
