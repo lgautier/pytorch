@@ -7,10 +7,7 @@ import itertools
 import unittest
 
 import torch
-from torch.distributed._local_tensor import (
-    maybe_disable_local_tensor_mode,
-    maybe_run_for_local_tensor,
-)
+from torch.distributed._local_tensor import maybe_disable_local_tensor_mode
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.tensor import (
     DeviceMesh,
@@ -448,13 +445,8 @@ class RedistributeTest(DTensorTestBase):
                 for idx in range(self.world_size)
             ]
 
-            @maybe_run_for_local_tensor
-            def _compute_local_shape(rank) -> list[int]:
-                local_shape = list(input_size)
-                local_shape[shard_dim] = chunk_sizes[rank]
-                return local_shape
-
-            local_shape = _compute_local_shape(my_rank)
+            local_shape = list(input_size)
+            local_shape[shard_dim] = chunk_sizes[my_rank]
 
             # test partial to shard, trigger reduce_scatter
             with comm_mode:
