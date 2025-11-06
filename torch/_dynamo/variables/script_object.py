@@ -25,6 +25,7 @@ from typing_extensions import ParamSpec
 
 import torch
 from torch._guards import Source
+from torch._library.opaque_object import is_opaque_type
 from torch.fx.proxy import Proxy
 
 from .. import graph_break_hints
@@ -61,7 +62,7 @@ class TorchScriptObjectVariable(UserDefinedObjectVariable):
 
     @classmethod
     def is_matching_cls(cls, user_cls: type) -> bool:
-        return issubclass(user_cls, torch.ScriptObject)
+        return issubclass(user_cls, torch.ScriptObject) or is_opaque_type(user_cls)
 
     @staticmethod
     def create(proxy: Proxy, value: Any, **options: Any) -> "TorchScriptObjectVariable":
