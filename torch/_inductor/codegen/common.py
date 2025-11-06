@@ -2394,7 +2394,7 @@ class KernelTemplate:
     """
     Base class for defining kernel templates.
 
-    Children classes: TritonTemplate, CUDATemplate
+    Children classes: TritonTemplate, CUTLASSTemplate
     """
 
     @staticmethod
