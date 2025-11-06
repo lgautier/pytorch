@@ -3,6 +3,7 @@ import builtins
 import torch
 import torch.utils._pytree as pytree
 from torch._ops import HigherOrderOperator
+from torch.fx.experimental.proxy_tensor import ProxyTorchDispatchMode
 
 
 class Print(HigherOrderOperator):
@@ -26,6 +27,15 @@ class Print(HigherOrderOperator):
 print = Print()
 
 
+@print.py_impl(ProxyTorchDispatchMode)
+# pyre-ignore
+def print_proxy_torch_dispatch_mode(
+    mode: ProxyTorchDispatchMode, format_str: str, **kwargs: object
+) -> None:
+    proxy_kwargs = pytree.tree_map(mode.tracer.unwrap_proxy, kwargs)
+    mode.tracer.create_proxy("call_function", print, (format_str,), proxy_kwargs)  # noqa: F841
+
+
 @print.py_impl(torch._C.DispatchKey.CompositeExplicitAutograd)
 # pyre-ignore
 def print_cpu(format_str: str, **kwargs: object) -> None:
@@ -42,3 +52,7 @@ def print_cpu(format_str: str, **kwargs: object) -> None:
     )
     # Use built-in print to avoid recursion with the HOP print
     builtins.print(format_str.format(**new_kwargs))
+
+
+print.fallthrough(torch._C.DispatchKey.AutogradCPU)
+print.fallthrough(torch._C.DispatchKey.AutogradCUDA)
