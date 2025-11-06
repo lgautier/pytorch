@@ -291,6 +291,32 @@ namespace c10 {
 using fLB::FLAGS_logtostderr;
 using fLI::FLAGS_minloglevel;
 using fLI::FLAGS_v;
+
+MessageLogger::MessageLogger(
+    const char* file,
+    int line,
+    int severity,
+    bool exit_on_fatal)
+    : tag_(""), stream_(), severity_(severity), exit_on_fatal_(exit_on_fatal) {}
+
+MessageLogger::~MessageLogger() noexcept(false) {
+  if (severity_ == ::google::GLOG_FATAL) {
+    DealWithFatal();
+  }
+}
+
+std::stringstream& MessageLogger::stream() {
+  return stream_;
+}
+
+void MessageLogger::DealWithFatal() {
+  if (exit_on_fatal_) {
+    LOG(FATAL) << stream_.str();
+  } else {
+    throw c10::Error(stream_.str(), nullptr, nullptr);
+  }
+}
+
 } // namespace c10
 
 C10_DEFINE_int(
@@ -412,8 +438,12 @@ void ShowLogInfoToStderr() {
   FLAGS_caffe2_log_level = GLOG_INFO;
 }
 
-MessageLogger::MessageLogger(const char* file, int line, int severity)
-    : severity_(severity) {
+MessageLogger::MessageLogger(
+    const char* file,
+    int line,
+    int severity,
+    bool exit_on_fatal)
+    : severity_(severity), exit_on_fatal_(exit_on_fatal) {
   if (severity_ < FLAGS_caffe2_log_level) {
     // Nothing needs to be logged.
     return;
@@ -458,7 +488,7 @@ MessageLogger::MessageLogger(const char* file, int line, int severity)
 }
 
 // Output the contents of the stream to the proper channel on destruction.
-MessageLogger::~MessageLogger() {
+MessageLogger::~MessageLogger() noexcept(false) {
   if (severity_ < FLAGS_caffe2_log_level) {
     // Nothing needs to be logged.
     return;
@@ -495,6 +525,18 @@ MessageLogger::~MessageLogger() {
 #endif // ANDROID
   if (severity_ == GLOG_FATAL) {
     DealWithFatal();
+  }
+}
+
+std::stringstream& MessageLogger::stream() {
+  return stream_;
+}
+
+void MessageLogger::DealWithFatal() {
+  if (exit_on_fatal_) {
+    abort();
+  } else {
+    throw c10::Error(stream_.str(), nullptr, nullptr);
   }
 }
 
