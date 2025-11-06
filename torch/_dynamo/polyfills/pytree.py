@@ -11,6 +11,16 @@ from typing import Any, TYPE_CHECKING, TypeVar
 import optree
 import optree._C
 import optree.utils
+from optree import (
+    is_namedtuple,
+    is_namedtuple_class,
+    is_namedtuple_instance,
+    is_structseq,
+    is_structseq_class,
+    is_structseq_instance,
+    namedtuple_fields,
+    structseq_fields,
+)
 
 import torch.utils._cxx_pytree as cxx_pytree  # noqa: F401
 from torch.utils._pytree import BUILTIN_TYPES, STANDARD_DICT_TYPES
@@ -26,7 +36,29 @@ if TYPE_CHECKING:
     from torch.utils._cxx_pytree import PyTree
 
 
-__all__: list[str] = []
+__all__ = [
+    "is_namedtuple",
+    "is_namedtuple_class",
+    "is_namedtuple_instance",
+    "is_structseq",
+    "is_structseq_class",
+    "is_structseq_instance",
+    "namedtuple_fields",
+    "structseq_fields",
+    "treespec_leaf",
+    "treespec_tuple",
+    "treespec_dict",
+    "tree_is_leaf",
+    "tree_iter",
+    "tree_leaves",
+    "tree_flatten",
+    "tree_structure",
+    "tree_unflatten",
+    "tree_map",
+    "tree_map_",
+    "tree_map_with_path",
+    "tree_map_with_path_",
+]
 
 
 _T = TypeVar("_T")
@@ -58,11 +90,10 @@ for __name in (
     "namedtuple_fields",
     "structseq_fields",
 ):
-    __func = getattr(optree, __name)
+    __func = globals()[__name]
     globals()[__name] = substitute_in_graph(__func, can_constant_fold_through=True)(
         __func.__python_implementation__
     )
-    __all__ += [__name]  # noqa: PLE0604
     del __func
 del __name
 
@@ -113,9 +144,6 @@ def tree_iter(
         stack.extend(reversed(children))
 
 
-__all__ += ["tree_iter"]
-
-
 @substitute_in_graph(optree.tree_leaves, can_constant_fold_through=True)  # type: ignore[arg-type]
 def tree_leaves(
     tree: PyTree,
@@ -133,9 +161,6 @@ def tree_leaves(
             namespace=namespace,
         )
     )
-
-
-__all__ += ["tree_leaves"]
 
 
 class _Asterisk(str):
@@ -156,7 +181,7 @@ del _Asterisk
 class PyTreeSpec:
     """Analog for :class:`optree.PyTreeSpec` in Python."""
 
-    _children: tuple[PyTreeSpec, ...]
+    _children: tuple[Self, ...]
     _type: builtins.type | None
     _metadata: Any
     _entries: tuple[Any, ...]
@@ -168,7 +193,7 @@ class PyTreeSpec:
     num_leaves: int = field(init=False)
     num_children: int = field(init=False)
 
-    def __post_init__(self) -> None:
+    def __post_init__(self, /) -> None:
         if self._type is None:
             assert len(self._children) == 0
             assert self._metadata is None
@@ -187,8 +212,8 @@ class PyTreeSpec:
         object.__setattr__(self, "num_leaves", num_leaves)
         object.__setattr__(self, "num_children", num_children)
 
-    def __repr__(self) -> str:
-        def helper(treespec: PyTreeSpec) -> str:
+    def __repr__(self, /) -> str:
+        def helper(treespec: Self) -> str:
             if treespec.is_leaf():
                 assert treespec.type is None
                 return _asterisk
@@ -221,31 +246,48 @@ class PyTreeSpec:
         ]
         return f"PyTreeSpec({', '.join(inner)})"
 
-    def __len__(self) -> int:
+    def __len__(self, /) -> int:
         return self.num_leaves
 
     @property
-    def type(self) -> builtins.type | None:
+    def type(self, /) -> builtins.type | None:
         return self._type
 
-    def is_leaf(self) -> bool:
+    def is_leaf(self, /) -> bool:
         return self.num_nodes == 1 and self.num_leaves == 1
 
-    def children(self) -> list[PyTreeSpec]:
+    def paths(self, /) -> list[tuple[Any, ...]]:
+        def helper(treespec: Self, path_prefix: tuple[Any, ...]) -> None:
+            if treespec.is_leaf():
+                paths.append(path_prefix)
+                return
+
+            for entry, subspec in zip(
+                treespec._entries,
+                treespec._children,
+                strict=True,
+            ):
+                helper(subspec, path_prefix + (entry,))
+
+        paths: list[tuple[Any, ...]] = []
+        helper(self, ())
+        return paths
+
+    def children(self, /) -> list[Self]:
         return list(self._children)
 
-    def child(self, index: int) -> PyTreeSpec:
+    def child(self, index: int, /) -> Self:
         return self._children[index]
 
-    def entries(self) -> list[Any]:
+    def entries(self, /) -> list[Any]:
         return list(self._entries)
 
-    def entry(self, index: int) -> Any:
+    def entry(self, index: int, /) -> Any:
         return self._entries[index]
 
-    def flatten_up_to(self, tree: PyTree) -> list[PyTree]:
+    def flatten_up_to(self, tree: PyTree, /) -> list[PyTree]:
         def helper(
-            treespec: PyTreeSpec,
+            treespec: Self,
             node: PyTree,
             subtrees: list[PyTree],
         ) -> None:
@@ -324,14 +366,14 @@ class PyTreeSpec:
                             f"expected {treespec._metadata!r}, but got {metadata!r}.",  # namedtuple type mismatch
                         )
 
-            for subtree, subspec in zip(children, treespec._children):
+            for subtree, subspec in zip(children, treespec._children, strict=True):
                 helper(subspec, subtree, subtrees)
 
         subtrees: list[PyTree] = []
         helper(self, tree, subtrees)
         return subtrees
 
-    def unflatten(self, leaves: Iterable[Any]) -> PyTree:
+    def unflatten(self, leaves: Iterable[Any], /) -> PyTree:
         if not isinstance(leaves, (list, tuple)):
             leaves = list(leaves)
         if len(leaves) != self.num_leaves:
@@ -531,7 +573,27 @@ def tree_flatten(
     return leaves, treespec
 
 
-__all__ += ["tree_flatten"]
+@substitute_in_graph(  # type: ignore[arg-type]
+    optree.tree_flatten_with_path,
+    # We need to disable constant folding here because we want the function to reference the
+    # PyTreeSpec class defined above, not the one in the C++ module.
+    can_constant_fold_through=False,
+)
+def tree_flatten_with_path(
+    tree: PyTree,
+    /,
+    is_leaf: Callable[[PyTree], bool] | None = None,
+    *,
+    none_is_leaf: bool = False,
+    namespace: str = "",
+) -> tuple[list[tuple[Any, ...]], list[Any], PyTreeSpec]:
+    leaves, treespec = tree_flatten(
+        tree,
+        is_leaf=is_leaf,
+        none_is_leaf=none_is_leaf,
+        namespace=namespace,
+    )
+    return treespec.paths(), leaves, treespec  # type: ignore[return-value]
 
 
 @substitute_in_graph(  # type: ignore[arg-type]
@@ -556,9 +618,6 @@ def tree_structure(
     )[1]
 
 
-__all__ += ["tree_structure"]
-
-
 @substitute_in_graph(  # type: ignore[arg-type]
     optree.tree_unflatten,
     # We need to disable constant folding here because we want the function to reference the
@@ -572,9 +631,6 @@ def tree_unflatten(treespec: PyTreeSpec, leaves: Iterable[Any]) -> PyTree:
             f"PyTreeSpec but got item of type {type(treespec)}."
         )
     return treespec.unflatten(leaves)
-
-
-__all__ += ["tree_unflatten"]
 
 
 @substitute_in_graph(optree.tree_map, can_constant_fold_through=True)  # type: ignore[arg-type]
@@ -595,9 +651,6 @@ def tree_map(
     )
     flat_args = [leaves] + [treespec.flatten_up_to(r) for r in rests]
     return treespec.unflatten(map(func, *flat_args))
-
-
-__all__ += ["tree_map"]
 
 
 @substitute_in_graph(optree.tree_map_, can_constant_fold_through=True)  # type: ignore[arg-type]
@@ -621,7 +674,47 @@ def tree_map_(
     return tree
 
 
-__all__ += ["tree_map_"]
+@substitute_in_graph(optree.tree_map_with_path, can_constant_fold_through=True)  # type: ignore[arg-type]
+def tree_map_with_path(
+    func: Callable[..., Any],
+    tree: PyTree,
+    /,
+    *rests: PyTree,
+    is_leaf: Callable[[PyTree], bool] | None = None,
+    none_is_leaf: bool = False,
+    namespace: str = "",
+) -> PyTree:
+    paths, leaves, treespec = tree_flatten_with_path(
+        tree,
+        is_leaf=is_leaf,
+        none_is_leaf=none_is_leaf,
+        namespace=namespace,
+    )
+    flat_args = [leaves] + [treespec.flatten_up_to(r) for r in rests]
+    return treespec.unflatten(map(func, paths, *flat_args))
+
+
+@substitute_in_graph(optree.tree_map_with_path_, can_constant_fold_through=True)  # type: ignore[arg-type]
+def tree_map_with_path_(
+    func: Callable[..., Any],
+    tree: PyTree,
+    /,
+    *rests: PyTree,
+    is_leaf: Callable[[PyTree], bool] | None = None,
+    none_is_leaf: bool = False,
+    namespace: str = "",
+) -> PyTree:
+    paths, leaves, treespec = tree_flatten_with_path(
+        tree,
+        is_leaf=is_leaf,
+        none_is_leaf=none_is_leaf,
+        namespace=namespace,
+    )
+    flat_args = [leaves] + [treespec.flatten_up_to(r) for r in rests]
+    # consume and exhaust the iterable
+    deque(map(func, paths, *flat_args), maxlen=0)
+    return tree
+
 
 _none_registration = optree.register_pytree_node.get(type(None))
 assert _none_registration is not None
@@ -669,5 +762,5 @@ def dict_unflatten(
 ) -> dict[_KT, _VT]:
     original_keys, sorted_keys = metadata
     d = dict.fromkeys(original_keys)
-    d.update(zip(sorted_keys, values))
+    d.update(zip(sorted_keys, values, strict=True))
     return d  # type: ignore[return-value]
